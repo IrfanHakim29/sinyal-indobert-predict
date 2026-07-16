@@ -15,6 +15,7 @@ Run:  python serve/predict_service.py     (listens on 127.0.0.1:8000)
 
 import os
 import re
+import urllib.request
 
 import emoji
 import numpy as np
@@ -25,10 +26,19 @@ from pydantic import BaseModel
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
 from tokenizers import Tokenizer
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ONNX_DIR = os.path.join(ROOT, "best-indobert-sentiment-onnx")
 MAX_LEN = 128
 NAMES = ["positive", "negative", "neutral"]  # label2id: positive:0, negative:1, neutral:2
+MODEL_FILES = [
+    "config.json", "tokenizer.json", "tokenizer_config.json",
+    "vocab.txt", "special_tokens_map.json", "model_quantized.onnx",
+]
+# Vercel's Python function bundler doesn't reliably ship large/git-lfs sibling
+# folders (confirmed: NO_SUCHFILE at runtime even though the folder is committed
+# and un-ignored) — so on a fresh cold start we pull the files straight from
+# Blob storage into /tmp instead of depending on them being bundled.
+BLOB_BASE = os.environ.get(
+    "MODEL_BLOB_BASE_URL", "https://lm9jkddarba1yxc5.public.blob.vercel-storage.com"
+)
 
 ASPECT_LEXICON = {
     "pengiriman": {"kirim", "paket", "kurir", "antar", "ekspedisi", "sampai", "tiba", "cod"},
@@ -38,6 +48,31 @@ ASPECT_LEXICON = {
     "harga": {"harga", "murah", "mahal", "worth", "promo", "diskon", "ongkir"},
     "pelayanan": {"layan", "respon", "ramah", "balas", "komplain", "tanggap"},
 }
+
+
+def resolve_model_dir() -> str:
+    """Local dev: model already sits on disk next to this script or at the
+    project root. Deployed: download once from Blob into /tmp (warm
+    invocations on the same instance reuse the cached copy)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for candidate in (
+        os.path.join(here, "best-indobert-sentiment-onnx"),
+        os.path.join(os.path.dirname(here), "best-indobert-sentiment-onnx"),
+    ):
+        if os.path.exists(os.path.join(candidate, "model_quantized.onnx")):
+            return candidate
+
+    cache_dir = "/tmp/best-indobert-sentiment-onnx"
+    os.makedirs(cache_dir, exist_ok=True)
+    for fname in MODEL_FILES:
+        dest = os.path.join(cache_dir, fname)
+        if not os.path.exists(dest):
+            print(f"[predict] downloading {fname} from blob …", flush=True)
+            urllib.request.urlretrieve(f"{BLOB_BASE}/{fname}", dest)
+    return cache_dir
+
+
+ONNX_DIR = resolve_model_dir()
 
 print("[predict] loading quantized ONNX model …", flush=True)
 session = ort.InferenceSession(

@@ -1,0 +1,7 @@
+[project]
+name = "sinyal-indobert-predict"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.vercel]
+entrypoint = "predict_service:app"

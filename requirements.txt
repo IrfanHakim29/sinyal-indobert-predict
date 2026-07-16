@@ -1,0 +1,7 @@
+fastapi==0.139.0
+uvicorn[standard]==0.50.2
+onnxruntime==1.27.0
+tokenizers==0.22.2
+PySastrawi==1.2.1
+emoji==2.15.0
+numpy
